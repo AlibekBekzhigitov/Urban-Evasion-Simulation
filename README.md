@@ -2,6 +2,8 @@
 
 A 2D agent-based stochastic simulation engine (built with Python, Pygame, and Pillow) modeling urban pursuit-evasion dynamics between an evasion agent and an operational patrol unit in a high-density courtyard topology ("Khrushchyovka" arch geometry).
 
+![Simulation Preview](simulation.gif)
+
 ---
 
 ## Acknowledgments, AI Collaboration & Theoretical Attribution
@@ -39,5 +41,6 @@ While the current 2D baseline isolates core linear pursuit-evasion mechanics, fu
 ```text
 .
 ├── simulation.py        # Core Pygame simulation engine
+├── simulation.gif       # Recorded execution preview
 ├── requirements.txt     # Python dependencies
 └── README.md            # Project documentation
