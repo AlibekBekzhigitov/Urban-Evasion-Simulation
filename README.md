@@ -34,7 +34,7 @@ Evaluated across a `26 × 17` grid (`Δ ∈ [-40, 60]` m, `Y ∈ [-64, 64]` m, 1
 
 ### Risk Maps & Policy Regions
 
-![QASH v2 Stage 1 Risk Maps](qash_v2_riskmaps.png)
+![QASH v2 Stage 1 Risk Maps](qash_v2_riskmap.png)
 
 *(If viewing locally, the high-resolution vector figure is available in `qash_v2_riskmaps.pdf`.)*
 
