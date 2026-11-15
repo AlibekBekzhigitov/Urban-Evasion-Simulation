@@ -1,0 +1,307 @@
+% ====================================================================
+% QASH Engine v2, stage 1 -- Overleaf source
+%
+% Upload to the same Overleaf folder:
+%   qash_v2_article.tex                (this file)
+%   qash_v2_numbers.tex                (base case, dt = 0.1 s)
+%   qash_v2_numbers_spec.tex  _fast.tex  _cheap.tex      (sensitivity runs)
+%   qash_v2_numbers_coarse.tex  _mid.tex  _finest.tex    (time-step runs)
+%   qash_v2_riskmaps.pdf               (figure)
+% All numbers below are macros written by qash_v2_encounter.py
+% (see run_all.sh). Do not type numbers by hand.
+% ====================================================================
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,array}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\input{qash_v2_numbers}
+\input{qash_v2_numbers_spec}
+\input{qash_v2_numbers_fast}
+\input{qash_v2_numbers_cheap}
+\input{qash_v2_numbers_coarse}
+\input{qash_v2_numbers_mid}
+\input{qash_v2_numbers_finest}
+
+\title{\textbf{QASH Engine v2, Stage 1: Hidden-Type Pursuit and Evasion on a Street Segment\\[2pt]
+\large Evidence, Fixed Policies, and Corrections to Earlier Results}}
+\author{Alibek Bekzhigitov\\Independent Researcher}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We revise the QASH model of a pedestrian who must decide whether a van that has stopped nearby is a hidden pursuer. An earlier addendum treated the problem as a Gaussian log-odds random walk. That section is superseded: its drift constants did not follow from its own cue table, and its simulation was never connected to the street geometry. Here the van follows an explicit timeline (slowing, parking, waiting, and then either emergence of a capture team or departure), the pedestrian observes the phase, and the posterior probability that the van is a pursuer is available in closed form. Five fixed pedestrian policies are evaluated by Monte Carlo over the van's stopping position and the position of the nearest refuge. With the assumed costs, the textbook rule of fleeing once the posterior exceeds $c_{\mathrm{fp}}/(c_{\mathrm{fp}}+C_{\mathrm{catch}})=\bayesThr$ coincides with fleeing at the first sign of slowing, which gives a false-alarm rate of 1.00. Only policies that flee before the pursuers emerge avoid capture, at false-alarm rates of \falseAlarmFleePark{} to \falseAlarmFleeSlow{}; policies that wait for emergence are caught in \missGridWaitDeploy{} to \missGridNaive{} of captor encounters, averaged over the grid. The results depend strongly on three assumptions (pursuer speed advantage, emergence latency, and waiting cost), which we vary one at a time. The policies are hand-built, so no optimal policy is claimed. All parameters are illustrative.
+\end{abstract}
+
+\section{Introduction}
+A pedestrian walks along a street segment. One side has a parking lane; the other has building courtyards that act as refuges. A van stops. With prior probability $\pi$ it is a \emph{captor van}: a team will emerge and chase pedestrians for a limited time. Otherwise it is benign. The pedestrian sees only what the van does. Fleeing early costs time and exposure when the van was benign (a false alarm); staying costs capture when it was not. This is a sequential detection problem with an escape option, closely related to optimal escape theory in behavioural ecology~\cite{ydenberg1986} and to partially observable decision processes~\cite{kaelbling1998}. Security-game treatments of related settings schedule the pursuing side~\cite{yin2012}; the model here describes the pedestrian's side only.
+
+This paper replaces the section ``POMDP Formalisation and SPRT Threshold Policy'' of an earlier addendum~\cite{qashadd} to the original QASH preprint~\cite{qash}. Its contributions are:
+\begin{enumerate}
+  \item an explicit van timeline with a closed-form posterior over the van's type (Section~\ref{sec:model});
+  \item an evaluation of five pedestrian policies over van position and refuge position (Section~\ref{sec:results});
+  \item one-at-a-time sensitivity runs and a time-step convergence check (Sections~\ref{sec:sens}--\ref{sec:dt});
+  \item a record of the errors found in earlier versions and in the first version of this simulator (Sections~\ref{sec:status} and~\ref{sec:fixes}).
+\end{enumerate}
+
+\section{Status of earlier versions}\label{sec:status}
+The addendum~\cite{qashadd} should not be cited for its numbers. Specifically:
+\begin{enumerate}
+  \item Its Table~2 set the drifts to $\mu_T=0.30$ and $\mu_B=0.20$ nats per step and described them as derived from its cue table. Computing the means and standard deviations from that table gives $\mu_T=0.167$, $\mu_B=0.131$, $\sigma_T=0.639$ and $\sigma_B=0.443$. The constants used were $1.8\times$ and $1.5\times$ too large, and a single noise level $\sigma=0.65$ fits only the threat side.
+  \item The threshold policy was called optimal, but only constant thresholds were compared. Under a hard deadline the optimal boundary varies with time.
+  \item At the longest deadline the best threshold lay on the edge of the search grid (4.50 nats), so the apparent plateau was an artefact.
+  \item Thresholds in the figures were measured from the initial belief, while the equations used absolute log-odds.
+  \item A statement that closed-form approximations track Monte Carlo closely for thresholds above 1.5 nats does not hold at short deadlines; for example, at a deadline of 5 steps and a threshold of 1.5 the missed-detection probability was 0.437 by simulation and 0.336 by the formula.
+  \item A closing section of tactical recommendations had no experiment behind it and is withdrawn.
+\end{enumerate}
+Tables~2 and~3 of the addendum belong to a different model and should not be compared with the results below.
+
+\section{Model}\label{sec:model}
+
+\subsection{Setting}
+Positions are in metres along the street ($x$ axis). The pedestrian starts at $x=0$ and walks toward $x=120$\,m. The van stops at $x=\Delta$ and one refuge (a courtyard entrance) is at $x=Y$, both measured from the pedestrian's start; negative values lie behind him. The capture team is represented by a single pursuer. The pursuers' capture quota is not modelled in this stage.
+
+\subsection{Van timeline}
+Both van types start in the \emph{slowing} phase, lasting $\mathcal{U}(2,4)$\,s. A benign van then passes with probability $p_{\mathrm{pass}}=0.35$; otherwise, and always for a captor van, it enters a \emph{parking} manoeuvre of $\mathcal{U}(1,3)$\,s and then \emph{waiting}. A captor van's team emerges after $\tau\sim\mathcal{U}(3,8)$\,s of waiting; a benign van leaves after $\mathcal{U}(6,20)$\,s.
+
+\subsection{Observation and posterior}
+The pedestrian observes the phase and its age without error. Emergence of the team reveals a captor van ($\Pr=1$); a van that passes or leaves is benign ($\Pr=0$). Otherwise the posterior depends only on the phase and age:
+\begin{align}
+  P(\text{captor}\mid\text{slowing}) &= \pi, \label{eq:p1}\\
+  P(\text{captor}\mid\text{parking}) &= \frac{\pi}{\pi+(1-\pi)(1-p_{\mathrm{pass}})}, \label{eq:p2}\\
+  P(\text{captor}\mid\text{waiting, age }a) &= \frac{\pi\,S_T(a)}{\pi\,S_T(a)+(1-\pi)(1-p_{\mathrm{pass}})\,S_B(a)}, \label{eq:p3}
+\end{align}
+where $S_T(a)=\operatorname{clip}\!\bigl((8-a)/5,0,1\bigr)$ is the probability that a captor team has not yet emerged, and $S_B(a)=1$ for $a\le6$ and $(20-a)/14$ for $6<a<20$ is the probability that a benign van has not yet left. The prior is $\pi=0.15$.
+
+\subsection{POMDP elements}
+Table~\ref{tab:pomdp} maps the elements of the decision problem to the implementation. Because the phase is observed exactly, the belief is a function of (phase, age), and the problem reduces to a small Markov decision problem over phase, age and pedestrian position. That reduction is why an exact solution by backward induction is feasible; it has not been done here.
+
+\begin{table}[htbp]
+\centering
+\caption{Elements of the decision problem.}\label{tab:pomdp}
+\small
+\begin{tabular}{p{2.6cm}p{11.6cm}}
+\toprule
+\textbf{Element} & \textbf{Implementation} \\
+\midrule
+State & Pedestrian position and mode; van type, phase, age and position; pursuer position. Van type is hidden. \\
+Actions & Advance, wait, flee (to the refuge if viable, otherwise directly away from the van). \\
+Observations & Van phase and age; emergence of the team. \\
+Transitions & Van timeline above; walking at 1.4\,m/s, running at 4.0\,m/s; pursuit. \\
+Observation model & Noise-free phase observation (a limitation). \\
+Reward & Costs in Section~\ref{sec:costs}. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Pedestrian policies}
+Table~\ref{tab:policies} defines the five policies. ``Behaviour before flight'' is what the pedestrian does until the trigger fires.
+
+\begin{table}[htbp]
+\centering
+\caption{Pedestrian policies.}\label{tab:policies}
+\small
+\begin{tabular}{llp{6.6cm}}
+\toprule
+\textbf{Policy} & \textbf{Flight trigger} & \textbf{Behaviour before flight} \\
+\midrule
+\texttt{ignore} & never & walk on \\
+\texttt{naive} & team emerges & walk on \\
+\texttt{wait\_deploy} & team emerges & hold still while an active van is ahead, otherwise walk on \\
+\texttt{flee\_park} & van starts to park & as \texttt{wait\_deploy} \\
+\texttt{flee\_slow} & van starts to slow & as \texttt{wait\_deploy} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Flight and pursuit}
+Flight starts $t_{\mathrm{react}}=1$\,s after the trigger. The pedestrian runs to the refuge if it is \emph{viable} and otherwise directly away from the pursuer's reference point (the van, or the pursuer once emerged). A refuge on the far side from the van is always viable. A refuge between pedestrian and van is viable if he can reach it before the pursuer would meet him:
+\begin{equation}
+  \frac{|Y-x_e|}{v_{\mathrm{run}}} < h + \frac{\max\bigl(0,\,d-c-v_{\mathrm{run}}h\bigr)}{v_{\mathrm{run}}+v_{\mathrm{p}}},
+  \label{eq:viable}
+\end{equation}
+where $d$ is the distance to the reference point, $c=1$\,m the contact distance, $v_{\mathrm{p}}$ the pursuer speed, and $h=\max(0,\,t_{\min}-t)$ the remaining time before the earliest possible emergence ($t_{\min}=6$\,s, a known bound, not the hidden actual time). Once emerged, the pursuer runs at $v_{\mathrm{p}}=5.0$\,m/s toward the pedestrian for at most $t_{\mathrm{chase}}=15$\,s and captures him within $c$. Entering the refuge makes the pedestrian safe. Within a time step, capture and refuge entry are resolved by linear interpolation of both motions, not by the order of checks.
+
+\subsection{Costs and metrics}\label{sec:costs}
+Being caught costs $C_{\mathrm{catch}}=10$. Starting a flight against a benign van costs $c_{\mathrm{fp}}=1$. Each half-second spent waiting or fleeing costs $c_w=0.02$. For each van type the expected cost is the mean over episodes; the reported cost is $J=\pi J_{\text{captor}}+(1-\pi)J_{\text{benign}}$. We report $P(\text{caught}\mid\text{captor})$, $P(\text{false alarm}\mid\text{benign})$, where a false alarm is a flight begun against a benign van, and $J$.
+
+\subsection{Parameters and design}
+Table~\ref{tab:params} lists every parameter. All are illustrative assumptions; none is calibrated to any real operation. The van position $\Delta$ ranges over $[-40,60]$\,m in steps of 4, and the refuge position $Y$ over $[-64,64]$\,m in steps of 8. Each cell uses 1000 episodes per van type, with the same random draws for every policy and cell (common random numbers). The seed is 20261114 and the time step is 0.1\,s.
+
+\begin{table}[htbp]
+\centering
+\caption{Parameters (all assumed).}\label{tab:params}
+\small
+\begin{tabular}{p{5.2cm}p{4.2cm}p{4.2cm}}
+\toprule
+Prior $P(\text{captor van})$ & $0.15$ & \\
+Benign van passes & $0.35$ & \\
+Slowing, parking durations & $\mathcal{U}(2,4)$, $\mathcal{U}(1,3)$\,s & \\
+Captor emergence $\tau$ & $\mathcal{U}(3,8)$\,s & after parking \\
+Benign dwell & $\mathcal{U}(6,20)$\,s & after parking \\
+Walk, run speed & 1.4, 4.0\,m/s & \\
+Pursuer speed, chase time & 5.0\,m/s, 15\,s & \\
+Reaction time, contact distance & 1\,s, 1\,m & \\
+$C_{\mathrm{catch}}$, $c_{\mathrm{fp}}$, $c_w$ (per 0.5\,s) & 10, 1, 0.02 & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Results}\label{sec:results}
+
+\subsection{Posterior and the textbook rule}
+Table~\ref{tab:post} gives the posterior from Eqs.~\eqref{eq:p1}--\eqref{eq:p3}. The Bayes decision threshold $c_{\mathrm{fp}}/(c_{\mathrm{fp}}+C_{\mathrm{catch}})=\bayesThr$ is exceeded already by the prior ($\postSlow$), so the rule ``flee when the posterior exceeds the threshold'' fires at the first observation. In this model it is therefore the policy \texttt{flee\_slow}, which has false-alarm rate \falseAlarmFleeSlow{} and a grid-mean cost of \costGridFleeSlow{}, the highest except for ignoring the van. The threshold rule ignores geometry and the cost of waiting, which is what the maps below show to matter.
+
+\begin{table}[htbp]
+\centering
+\caption{Posterior probability that the van is a captor van.}\label{tab:post}
+\small
+\begin{tabular}{lc}
+\toprule
+\textbf{Observation} & \textbf{Posterior}\\
+\midrule
+Van slowing & \postSlow \\
+Van parking & \postPark \\
+Waiting 5\,s, no emergence & \postWaitFive \\
+Waiting 6\,s, no emergence & \postWaitSix \\
+Waiting 7\,s, no emergence & \postWaitSeven \\
+Waiting 8\,s or more, no emergence & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Trade-off between missed threats and false alarms}
+Table~\ref{tab:tradeoff} gives grid means. Only the two early-flight policies avoid capture, at the price of false alarms; the policies that wait for emergence have no false alarms but are caught in some captor encounters. ``Lowest cost'' is the share of grid cells in which the policy has the lowest expected cost; in the tie share, \texttt{naive} and \texttt{wait\_deploy} behave identically because the van is behind the pedestrian and the pedestrian never waits.
+
+\begin{table}[htbp]
+\centering
+\caption{Policy comparison, grid means. $P(\text{caught})$ is conditional on a captor van, $P(\text{false alarm})$ on a benign van.}\label{tab:tradeoff}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Policy} & $P(\text{caught})$ & $P(\text{false alarm})$ & Mean cost $J$ & Lowest cost (\% of cells)\\
+\midrule
+\texttt{ignore}      & \missGridIgnore & \falseAlarmIgnore & \costGridIgnore & \bestIgnore \\
+\texttt{naive}       & \missGridNaive & \falseAlarmNaive & \costGridNaive & \bestNaive \\
+\texttt{wait\_deploy}& \missGridWaitDeploy & \falseAlarmWaitDeploy & \costGridWaitDeploy & \bestWaitDeploy \\
+\texttt{flee\_park}  & \missGridFleePark & \falseAlarmFleePark & \costGridFleePark & \bestFleePark \\
+\texttt{flee\_slow}  & \missGridFleeSlow & \falseAlarmFleeSlow & \costGridFleeSlow & \bestFleeSlow \\
+tie (\texttt{naive} $=$ \texttt{wait\_deploy}) & & & & \bestTie \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Risk maps}
+Figure~\ref{fig:maps} shows $P(\text{caught}\mid\text{captor})$ over the van's stopping position and the refuge position. Read from the grid (resolution 4\,m), a pedestrian who walks on and flees at emergence is at risk for vans stopping from about 5\,m behind to about 35\,m ahead; one who holds still is at risk for vans from the pedestrian's position to about 18\,m ahead, narrowing to roughly 6--12\,m when the refuge lies far behind him. Vans stopping behind the pedestrian are safe if he keeps walking, because his lead grows. Fleeing at the start of parking is never caught in this parameter set, and costs a false alarm in \falseAlarmFleePark{} of benign encounters. The cheapest policy is therefore decided by geometry: fleeing at parking is cheapest in \bestFleePark{}\% of cells, mostly vans stopping close ahead; holding still is cheapest for vans roughly 18--38\,m ahead; walking on is cheapest beyond that.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{qash_v2_riskmaps.pdf}
+\caption{Stage-1 results. Top: $P(\text{caught}\mid\text{captor})$ for three policies. Bottom left: grid-mean miss and false-alarm rates. Bottom middle: policy with the lowest expected cost per cell. Bottom right: its expected cost. Illustrative parameters.}\label{fig:maps}
+\end{figure}
+
+\subsection{Predictions made before the runs}
+Three predictions were written down before the first run.
+\begin{enumerate}
+  \item \emph{Beside the van, capture is near-certain whatever the policy.} This failed. With the van beside him ($\Delta=0$), the reactive policies are caught with probability \missBesideNaive{} (averaged over refuge positions), not 1, because the pedestrian walks away during the 6--15\,s before the team emerges; the early-flight policies are caught with probability \missBesideFleePark{} and \missBesideFleeSlow{}. Only ignoring the van gives \missBesideIgnore.
+  \item \emph{A van far ahead with a refuge in between is harmless to a pedestrian who reacts at emergence.} This held: for $\Delta=40$\,m and $Y=24$\,m, $P(\text{caught}\mid\text{captor})=\predTwoWait$ for \texttt{wait\_deploy} (95\% CI $[\predTwoWaitLo,\predTwoWaitHi]$) and $\predTwoNaive$ for \texttt{naive} ($[\predTwoNaiveLo,\predTwoNaiveHi]$). An earlier version of the simulator gave 0.208 for \texttt{naive} here; that was an artefact (Section~\ref{sec:fixes}).
+  \item \emph{The constant-threshold policy loses most against the optimal policy at intermediate distances.} Not tested: no optimal policy has been computed.
+\end{enumerate}
+
+\subsection{Sensitivity to three assumptions}\label{sec:sens}
+Table~\ref{tab:sens} varies one assumption at a time: the pursuer's speed advantage (equal speeds, 4.0\,m/s and 10\,s chase), emergence latency (0.5--1.5\,s after parking), and the cost of waiting (0.005 instead of 0.02 per half-second).
+
+\begin{table}[htbp]
+\centering
+\caption{Sensitivity, one assumption at a time. ``Beside'' is $P(\text{caught}\mid\text{captor})$ at $\Delta=0$, averaged over refuge positions; ``grid'' is the grid mean; $J$ is the grid-mean cost; the last column is the share of cells where \texttt{flee\_park} has the lowest cost.}\label{tab:sens}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccccccc}
+\toprule
+ & \multicolumn{2}{c}{Beside} & \multicolumn{2}{c}{Grid} & \multicolumn{2}{c}{$J$} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+\textbf{Case} & \texttt{naive} & \texttt{flee\_park} & \texttt{naive} & \texttt{wait\_deploy} & \texttt{naive} & \texttt{wait\_deploy} & \texttt{flee\_park} lowest (\%) \\
+\midrule
+Base
+ & \missBesideNaive & \missBesideFleePark & \missGridNaive & \missGridWaitDeploy & \costGridNaive & \costGridWaitDeploy & \bestFleePark \\
+Equal speeds
+ & \specMissBesideNaive & \specMissBesideFleePark & \specMissGridNaive & \specMissGridWaitDeploy & \specCostGridNaive & \specCostGridWaitDeploy & \specBestFleePark \\
+Fast emergence
+ & \fastMissBesideNaive & \fastMissBesideFleePark & \fastMissGridNaive & \fastMissGridWaitDeploy & \fastCostGridNaive & \fastCostGridWaitDeploy & \fastBestFleePark \\
+Cheap waiting
+ & \cheapMissBesideNaive & \cheapMissBesideFleePark & \cheapMissGridNaive & \cheapMissGridWaitDeploy & \cheapCostGridNaive & \cheapCostGridWaitDeploy & \cheapBestFleePark \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+With equal speeds the problem nearly disappears: reactive policies are almost never caught and early flight is never the cheapest, because a pedestrian who runs at emergence cannot be overtaken. With fast emergence, ``no escape beside the van'' becomes true for reactive policies (\fastMissBesideNaive), and only fleeing at the first sign of slowing avoids capture (\fastMissBesideFleeSlow{} caught), at a false-alarm rate of 1.00. With cheap waiting, holding still has the lowest grid-mean cost (\cheapCostGridWaitDeploy{} against \cheapCostGridNaive{} for walking on). The conclusion that early flight is needed beside the van is therefore a statement about emergence latency, not about geometry alone.
+
+\subsection{Time-step convergence}\label{sec:dt}
+Table~\ref{tab:dt} shows that results are not converged at a time step of 0.5\,s. The default of 0.1\,s is within about 0.02 of the 0.05\,s result for the beside-the-van figure.
+
+\begin{table}[htbp]
+\centering
+\caption{Effect of the time step on $P(\text{caught}\mid\text{captor})$.}\label{tab:dt}
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Time step (s)} & Beside, \texttt{naive} & Grid mean, \texttt{naive} & Grid mean, \texttt{wait\_deploy}\\
+\midrule
+0.5  & \coarseMissBesideNaive & \coarseMissGridNaive & \coarseMissGridWaitDeploy \\
+0.25 & \midMissBesideNaive & \midMissGridNaive & \midMissGridWaitDeploy \\
+0.1 (default) & \missBesideNaive & \missGridNaive & \missGridWaitDeploy \\
+0.05 & \finestMissBesideNaive & \finestMissGridNaive & \finestMissGridWaitDeploy \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Corrections to the simulator}\label{sec:fixes}
+An independent review of the first version of the simulation code raised four issues and two plotting points. Each was tested against the code before changing it.
+\begin{enumerate}
+  \item \emph{Early termination of flights.} Episodes ended 15\,s after a flight began, before the pursuers' own chase period could end. The flaw is real, but at the default parameters it changes nothing: early-flight leads exceed the pursuers' reach. With a pursuer speed of 6.0\,m/s the first version gave a capture probability of 0.028 for early flight beside the van with no usable refuge, and the corrected code gives 0.364. Flights from a captor van now end only when the pursuers give up.
+  \item \emph{Refuge reachability before emergence.} The check assumed the pursuers start at once. It now allows for the earliest possible emergence, Eq.~\eqref{eq:viable}. The review proposed using the actual emergence time; that would give the pedestrian hidden information, so a known lower bound is used instead.
+  \item \emph{Refuge underfoot.} A pedestrian already standing at a refuge ran away from it (expected cost 1.640 against 1.120 for a refuge 8\,m away). A refuge underfoot is now reachable (1.060 against 1.120).
+  \item \emph{Order of checks within a step.} Capture was tested before refuge entry, which produced a spurious capture probability of 0.239 at one refuge position, against 0.000 at its neighbours, for a van 28\,m behind. Capture and entry are now resolved by interpolation inside the step. This also removed the apparent failure of prediction 2 for \texttt{naive} (0.208).
+  \item \emph{Time step.} Results were not converged at 0.5\,s (Table~\ref{tab:dt}); the default is now 0.1\,s.
+  \item \emph{Plots.} The cost colour scale is fixed at $[0,1.2]$ and the tie region is explained in the caption.
+\end{enumerate}
+The review also suggested a sixth policy that fires the Bayes threshold only inside a dangerous window. It was not added: its thresholds would be fitted to the maps. The review's reading that the plain Bayes threshold reduces to \texttt{flee\_park} is also not correct for these parameters; because the prior already exceeds the threshold, it reduces to \texttt{flee\_slow}.
+
+\section{Limitations and scope}
+\begin{itemize}
+  \item All parameters are illustrative and none is calibrated to data. Results are conditional on the model; sensitivity was explored only one assumption at a time.
+  \item The policies are hand-built, and ``lowest cost'' means lowest among five. No optimal policy is claimed. Exact backward induction is feasible and is the next step.
+  \item The pedestrian knows the structure of the van timeline and observes phases without error.
+  \item The pursuit team is a single pursuer; the capture quota, crowd effects (dilution and social alarm cues) and relocation of the van are not modelled. They are planned for stage 2.
+  \item The street is one-dimensional and the refuge is a point.
+  \item The model describes a pedestrian's decision under a hidden-type threat. It contains no operational detail about any real enforcement activity and no optimisation for the pursuing side.
+\end{itemize}
+
+\section{Reproducibility}
+The simulator (\texttt{qash\_v2\_encounter.py}), the script that regenerates every number and figure (\texttt{run\_all.sh}), and the output files are in the project repository.
+% BEFORE UPLOAD: push these files and replace this sentence with the repository URL.
+Each number in this article is a macro written by the simulator; the base case uses seed 20261114 and a time step of 0.1\,s, and running \texttt{run\_all.sh} takes a few minutes.
+
+\section*{AI assistance}
+% AUTHOR: edit this paragraph to say exactly what you wrote and verified yourself.
+The simulation code, the \LaTeX{} source and first drafts of the text were produced with Claude (Anthropic) in an iterative conversation with the author; Gemini (Google) was used on earlier versions. The corrections in Section~\ref{sec:fixes} came from an independent AI-assisted code review and were checked by running the code. Errors in earlier versions, some introduced by these tools, are listed in Section~\ref{sec:status}.
+
+\begin{thebibliography}{9}
+% Yin et al. was checked against the AAAI record (26(2):2348--2355, doi 10.1609/aaai.v26i2.18975).
+% Check the remaining entries against the publishers' pages before submission.
+\bibitem{qash} A.\ Bekzhigitov, ``QASH Engine: Quick Actions in Sudden Hazards,'' ResearchGate preprint, 2026. DOI: 10.13140/RG.2.2.20347.68646.
+% TODO: add the DOI of the addendum if it has one.
+\bibitem{qashadd} A.\ Bekzhigitov, ``QASH Engine addendum: POMDP formalisation and SPRT threshold policy,'' 2026 (superseded by this paper).
+\bibitem{yin2012} Z.\ Yin, A.\ X.\ Jiang, M.\ P.\ Johnson, M.\ Tambe, C.\ Kiekintveld, K.\ Leyton-Brown, T.\ Sandholm and J.\ P.\ Sullivan, ``TRUSTS: Scheduling randomized patrols for fare inspection in transit systems,'' in \emph{Proc.\ AAAI Conference on Artificial Intelligence}, vol.~26, no.~2, pp.~2348--2355, 2012.
+\bibitem{ydenberg1986} R.\ C.\ Ydenberg and L.\ M.\ Dill, ``The economics of fleeing from predators,'' \emph{Advances in the Study of Behavior}, vol.~16, pp.~229--249, 1986.
+\bibitem{kaelbling1998} L.\ P.\ Kaelbling, M.\ L.\ Littman and A.\ R.\ Cassandra, ``Planning and acting in partially observable stochastic domains,'' \emph{Artificial Intelligence}, vol.~101, no.~1--2, pp.~99--134, 1998.
+\end{thebibliography}
+
+\end{document}
