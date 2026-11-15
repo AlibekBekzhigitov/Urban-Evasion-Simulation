@@ -2,71 +2,46 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Simulation: Monte Carlo](https://img.shields.io/badge/Monte%20Carlo-N%3D50k-green.svg)](#empirical-validation--monte-carlo-results)
+[![Version: v2 Stage 1](https://img.shields.io/badge/version-v2%20Stage%201-blue.svg)](#qash-v2-stage-1-hidden-type-pursuit-and-evasion)
 
-An agent-based stochastic simulation engine modeling non-cooperative urban pursuit-evasion dynamics under partial observability, spatial bottlenecks, and asymmetric threat perception in high-density courtyard topologies ("Khrushchyovka" arch geometries).
-
----
-
-## Overview & Core Problem
-
-Urban evasion dynamics in restricted pedestrian domains operate under severe spatial constraints and partial information. Operational enforcement units mask transit movement within ordinary civilian traffic streams, deploying unexpectedly to execute local sweeps. 
-
-The **QASH Engine** formalizes how an evader agent evaluates kinematic anomalies under cognitive noise, balancing the trade-off between **False Negatives** ($P_{\text{FN}}$, missed detection resulting in capture) and **False Positives** ($P_{\text{FP}}$, unnecessary flight/panic).
-
-![Simulation Preview](simulation.gif)
+An agent-based stochastic simulation framework modeling urban pursuit-evasion dynamics under partial observability, spatial bottlenecks, and hidden-type threats in high-density courtyard topologies.
 
 ---
 
-## Mathematical & Theoretical Architecture
+## QASH v2, Stage 1: Hidden-Type Pursuit and Evasion
 
-### 1. POMDP Formalization & Wald's SPRT Policy
-The decision problem is modeled as a Partially Observable Markov Decision Process (POMDP). The evader does not directly observe the vehicle type $\theta \in \{\text{Threat}, \text{Benign}\}$, but updates a recursive log-odds belief $\ell_t$ via **Wald's Sequential Probability Ratio Test (SPRT)**:
+**QASH v2 (Stage 1)** replaces the earlier abstract log-odds random-walk addendum with a physical, continuous-space encounter model in metres and seconds (`dt = 0.1 s`).
 
-$$\ell_t = \ell_0 + \sum_{i=1}^{t} \ln \Lambda(o_i), \quad \text{where } \Lambda(o) = \frac{P(o \mid \text{Threat})}{P(o \mid \text{Benign})}$$
+### Model Overview
+A pedestrian walks along a 120 m street segment with courtyard entrances acting as refuges (`x = Y`). A van stops at `x = Δ` and is a *captor van* with prior probability `π = 0.15` (otherwise benign):
 
-The evader initiates an immediate sprint toward the escape archway $\Omega_{\text{arch}}$ once belief crosses an effective threshold $h^*$:
+* **Van Timeline:** Both types start in `slowing` ~ `U(2, 4)` s. Benign vans pass with probability `p_pass = 0.35`; otherwise, and always for captor vans, the van enters `parking` ~ `U(1, 3)` s followed by `waiting`.
+* **Emergence vs. Departure:** A captor team emerges after `τ ~ U(3, 8)` s of waiting and pursues at `5.0 m/s` for up to `15 s`; a benign van leaves after `U(6, 20)` s.
+* **Closed-Form Bayesian Posterior:** Because the phase and phase age `a` are observed, the posterior `P(captor | phase, a)` updates analytically via uniform survival functions (peaking at `0.214` during parking and decaying to `0.000` after `8 s` of waiting without emergence).
 
-$$\text{Action}(t) = \begin{cases} \text{Sprint}(\Omega_{\text{arch}}), & \text{if } \ell_t \ge h^* \\ \text{Observe / Walk}, & \text{otherwise} \end{cases}$$
+### Policy Comparison (Base Case, `dt = 0.1 s`, Seed `20261114`)
 
-### 2. Analytical Decision Regimes & Spatial Deadlines
-Under micro-local capture constraints ($\Delta X_{\text{slot}} \le 55\text{ px}$), the optimal threshold $h^*$ is bounded by the spatial deadline $D$ (steps remaining until entering the capture zone):
+Evaluated across a `26 × 17` grid (`Δ ∈ [-40, 60]` m, `Y ∈ [-64, 64]` m, 1,000 episodes per van type per cell):
 
-1. **Unconstrained Regime ($D \ge 50$):** High threshold ($h^* \approx 4.50\text{ nats}$), zero false alarms ($P_{\text{FP}} < 1\%$).
-2. **Deadline-Constrained Regime ($D \in [5, 20]$):** Optimal threshold decays as $D \to 0$. The evader accepts higher false-alarm rates to prevent catastrophic missed detections ($P_{\text{FN}}$).
-3. **Immediate Flight Regime ($D < 5$):** Threshold collapses ($h^* \to 0$). Information gather is impossible; immediate evasion is triggered.
+| Policy | Trigger & Pre-Flight Behaviour | $P(\text{caught} \mid \text{captor})$ | $P(\text{FA} \mid \text{benign})$ | Mean Cost $J$ | Lowest-Cost Share |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| `ignore` | Never flees; walks on | `0.981` | `0.000` | `1.471` | `0.0%` |
+| `naive` | Walks on; flees at emergence | `0.314` | `0.000` | `0.518` | `28.5%` |
+| `wait_deploy` | Holds still if van ahead; flees at emergence | `0.161` | `0.000` | `0.584` | `18.3%` |
+| `flee_park` | Holds still; flees when van starts to park | `0.000` | `0.647` | `0.937` | `12.4%` |
+| `flee_slow` | Flees at first sign of slowing (= static Bayes rule) | `0.000` | `1.000` | `1.275` | `1.1%` |
+| *Tie (`naive = wait_deploy`)* | Van stops behind pedestrian (`Δ < 0`) | — | — | — | `39.6%` |
 
----
+### Risk Maps & Policy Regions
 
-## Empirical Validation & Monte Carlo Results
+![QASH v2 Stage 1 Risk Maps](qash_v2_riskmaps.png)
 
-The repository includes a rigorous verification harness (`QashMonteCarlo.py`) executing **$N = 50,000$ seeded Monte Carlo rollouts** per deadline configuration.
-
-### Optimal Threshold & Cost Summary
-
-| Deadline ($D$, steps) | Optimal Threshold ($h^*$) | $P_{\text{FN}}$ (Missed / Captured) | $P_{\text{FP}}$ (False Panic) | Expected Cost $J(h^*)$ |
-| :---: | :---: | :---: | :---: | :---: |
-| **$D = 50$** (Far / Safe) | **$4.50$ nats** | $0.59\%$ | $0.94\%$ | **$0.0168$** |
-| **$D = 20$** | **$2.10$ nats** | $5.26\%$ | $8.05\%$ | **$0.1473$** |
-| **$D = 10$** | **$1.15$ nats** | $11.25\%$ | $18.67\%$ | **$0.3274$** |
-| **$D = 5$** (Critical) | **$0.50$ nats** | $14.94\%$ | **$32.77\%$** | **$0.5027$** |
-
-### Generated Visual Artifacts
-
-| SPRT Trade-Off Curve | Cost Optimization $J(h)$ |
-| :---: | :---: |
-| ![FN/FP Trade-off](qash_fn_fp_curve.pdf) | ![Cost vs Threshold](qash_cost_vs_h.pdf) |
-| *Convergence between Theory (Inverse Gaussian) and Monte Carlo.* | *Global minima showing optimal decision thresholds $h^*$.* |
+*(If viewing locally, the high-resolution vector figure is available in `qash_v2_riskmaps.pdf`.)*
 
 ---
 
-## Repository Structure
+## Reproducibility
 
-```text
-.
-├── QashMonteCarlo.py     # Reproducible SPRT POMDP Monte Carlo harness (N=50k)
-├── qash_results.csv       # Raw simulation output data with SE confidence intervals
-├── simulation.py          # Core Pygame 2D interactive environment
-├── simulation.gif         # Execution demonstration GIF
-├── requirements.txt       # Python dependencies (NumPy, SciPy, Matplotlib, Pygame)
-└── README.md              # Project documentation
+### Requirements
+```bash
+pip install numpy matplotlib
