@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Version: v2 Stage 1.5](https://img.shields.io/badge/version-v2%20Stage%201.5-blue.svg)](#stage-15-2d-multi-agent-street-world-differentscenarios)
+[![Version: v2 Stage 1.5](https://img.shields.io/badge/version-v2%20Stage%201.5-blue.svg)](#exact-solver--2d-environment-visualization)
 
 An agent-based stochastic simulation framework modeling urban pursuit-evasion dynamics under partial observability, spatial bottlenecks, and hidden-type threats in high-density courtyard topologies.
 
@@ -41,20 +41,12 @@ Evaluated across a `26 × 17` grid (`Δ ∈ [-40, 60]` m, `Y ∈ [-64, 64]` m, 1
 
 ---
 
-## Development Stages & Model Attribution
+## Exact Solver & 2D Environment Visualization
 
-### Stage 1: Exact Belief-MDP Solver (`BackwardInduction/`, `UPD_V2/`) — *Engineered with Gemini*
-An exact single-threaded analytical backward induction solver (`qash_v2_dp.py`, exported via `qash_v2_dp_numbers.tex` and `qash_v2_dp_summary.csv`) solves the reduced belief-MDP over `(x_e, phase, a, Y)` with closed-form flight evaluation:
-- **Grid-Mean Expected Cost:** $J = 0.257$ (strictly outperforming all static threshold heuristics).
-- **Capture & False-Alarm Rates:** $P(\text{caught} \mid \text{captor}) = 0.007$, $P(\text{FA} \mid \text{benign}) = 0.117$.
+- **Exact Belief-MDP Solver (`BackwardInduction/`, `UPD_V2/`):** Computes the optimal dynamic policy via analytical backward induction (`qash_v2_dp.py`, exported metrics in `qash_v2_dp_summary.csv` and `qash_v2_dp_numbers.tex`), achieving grid-mean expected cost $J = 0.257$ ($P(\text{caught} \mid \text{captor}) = 0.007$, $P(\text{FA} \mid \text{benign}) = 0.117$).
+- **2D Spatial Layout (`DifferentScenarios/different_scenes.py`):** Illustrates the physical courtyard bottleneck between residential blocks, parallel parking slots, capture quota (`0/5`), and pedestrian crowd dynamics (`n_ped = 30`)[cite: 4]. Additional baseline clips (`scene_A_empty.gif`[cite: 2], `scene_B_crowd.gif`[cite: 3]) are available in `DifferentScenarios/`.
 
-### Stage 1.5: 2D Multi-Agent Street World (`DifferentScenarios/different_scenes.py`) — *Engineered with Claude*
-Extends the Stage 1 encounter physics into a continuous 2D street environment with a decoupled Pillow GIF renderer:
-- **2D Mechanics:** Crowd dilution (`n_ped = 30`), capture quota (`0/5`) with escorting back to the van, multi-stop van relocation across parking slots, departing benign vans, and posterior-based all-clear recovery (`smart_clear`).
-- **Scenario Animations (`DifferentScenarios/`):**
-  - `scene_A_empty.gif` — baseline empty sidewalk (`n_ped = 0`, `wait_deploy`).
-  - `scene_B_crowd.gif` — crowd dilution effect (`n_ped = 30`, `wait_deploy`).
-  - `scene_C_flee_park.gif` — early parking trigger in crowd (`n_ped = 30`, `flee_park`).
+![2D Spatial Encounter Layout](DifferentScenarios/scene_C_flee_park.gif)
 
 ---
 
