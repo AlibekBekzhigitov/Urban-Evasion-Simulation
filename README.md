@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Version: v2 Stage 1.5](https://img.shields.io/badge/version-v2%20Stage%201.5-blue.svg)](#exact-solver--2d-environment-visualization)
+[![Version: v2 Stage 2](https://img.shields.io/badge/version-v2%20Stage%202-blue.svg)](#qash-v2-stage-2-line-of-sight-occlusion--parking-geometry)
 
 An agent-based stochastic simulation framework modeling urban pursuit-evasion dynamics under partial observability, spatial bottlenecks, and hidden-type threats in high-density courtyard topologies.
 
@@ -47,6 +47,34 @@ Evaluated across a `26 × 17` grid (`Δ ∈ [-40, 60]` m, `Y ∈ [-64, 64]` m, 1
 - **2D Spatial Layout (`DifferentScenarios/different_scenes.py`):** Illustrates the physical courtyard bottleneck between residential blocks, parallel parking slots, capture quota (`0/5`), and pedestrian crowd dynamics (`n_ped = 30`). Additional baseline clips (`scene_A_empty.gif`, `scene_B_crowd.gif`) are available in `DifferentScenarios/`.
 
 ![2D Spatial Encounter Layout](DifferentScenarios/scene_C_flee_park.gif)
+
+---
+
+## QASH v2, Stage 2: Line-of-Sight Occlusion & Parking Geometry
+
+**Stage 2** (`AlternativeScenarioObstacles/`) relaxes the noise-free phase observability assumption of Stage 1 by introducing a unified 2D line-of-sight occlusion and physical blockage layer (`Obstacle`), while preserving exact model nesting (`check-stage1` passes bit-for-bit when `is_tall = False`).
+
+### Research Question & Unified Obstacle Layer
+- **Preregistered Question:** *What is the worst warning lead time the pedestrian can lose under sightline occlusion and parking layout constraints, and does the pursuer team lose as much?*
+- **Unified `Obstacle` Abstraction:** Tall parked SUVs (`4.8 m`), delivery trucks (`6.5 m`), angled parking (`45°` / `90°`), and sidewalk roadworks (`22 m`, `H = 3.5 m`) are parameterized by position, length, binary height class (`is_tall`), sidewalk speed factor, and courtyard blockage (`blocks_yard`).
+- **Symmetric Channel Decomposition:** Using common random numbers, each obstacle is split into a pedestrian sightline/speed channel (`ped_only`), a pursuer detour delay channel (`team_only`, `+3.0 s`), and the combined symmetric case (`both`).
+
+### Stage 2 Monte Carlo Results (`n = 500`, `van_x = 24 m`, `adaptive_bayes`)
+
+| Scenario (`channel = both`) | $P(\text{caught} \mid \text{captor})$ | $P(\text{FA} \mid \text{benign})$ | Mean Cost $J$ | Effective Warning Lead Time |
+| :--- | :---: | :---: | :---: | :---: |
+| Parallel Baseline (Low Sedans only) | `0.000` | `0.651` | `0.556` | `10.65 s` |
+| Tall Delivery Truck (`x = 12 m`) | `0.863` | `0.103` | `1.348` | `4.35 s` |
+| Angled Parking (`45°`) + Tall Truck | `0.959` | `0.056` | `1.448` | `4.05 s` |
+| Roadworks Stress Test (`22 m`, Arch Blocked) | `1.000` | `0.000` | `1.460` | `0.00 s` |
+
+> **Key Finding (Asymmetric Sightline Loss):** Unlike symmetric interior partitions, street-level sightline loss hurts the pedestrian far more than detour delay slows the team. When a captor van parks `6–12 m` behind a tall vehicle, an *ambush blind-spot wedge* collapses warning lead time and drives capture risk from `0.000` to `0.863–1.000`.
+
+### 2D Ray-Casting Cones & Ambush Sensitivity Heatmaps
+
+![Stage 2 2D Ray-Casting Occlusion Cones](AlternativeScenarioObstacles/stage2_occlusion_preview.png)
+
+![Stage 2 Ambush Blind-Spot Heatmap](AlternativeScenarioObstacles/stage2_occlusion_heatmap.png)
 
 ---
 
