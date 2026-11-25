@@ -54,27 +54,39 @@ Evaluated across a `26 × 17` grid (`Δ ∈ [-40, 60]` m, `Y ∈ [-64, 64]` m, 1
 
 **Stage 2** (`AlternativeScenarioObstacles/`) relaxes the noise-free phase observability assumption of Stage 1 by introducing a unified 2D line-of-sight occlusion and physical blockage layer (`Obstacle`), while preserving exact model nesting (`check-stage1` passes bit-for-bit when `is_tall = False`).
 
-### Research Question & Unified Obstacle Layer
-- **Preregistered Question:** *What is the worst warning lead time the pedestrian can lose under sightline occlusion and parking layout constraints, and does the pursuer team lose as much?*
+### 1. Unified Obstacle Layer & Asymmetric Sightline Loss
 - **Unified `Obstacle` Abstraction:** Tall parked SUVs (`4.8 m`), delivery trucks (`6.5 m`), angled parking (`45°` / `90°`), and sidewalk roadworks (`22 m`, `H = 3.5 m`) are parameterized by position, length, binary height class (`is_tall`), sidewalk speed factor, and courtyard blockage (`blocks_yard`).
-- **Symmetric Channel Decomposition:** Using common random numbers, each obstacle is split into a pedestrian sightline/speed channel (`ped_only`), a pursuer detour delay channel (`team_only`, `+3.0 s`), and the combined symmetric case (`both`).
-
-### Stage 2 Monte Carlo Results (`n = 500`, `van_x = 24 m`, `adaptive_bayes`)
-
-| Scenario (`channel = both`) | $P(\text{caught} \mid \text{captor})$ | $P(\text{FA} \mid \text{benign})$ | Mean Cost $J$ | Effective Warning Lead Time |
-| :--- | :---: | :---: | :---: | :---: |
-| Parallel Baseline (Low Sedans only) | `0.000` | `0.651` | `0.556` | `10.65 s` |
-| Tall Delivery Truck (`x = 12 m`) | `0.863` | `0.103` | `1.348` | `4.35 s` |
-| Angled Parking (`45°`) + Tall Truck | `0.959` | `0.056` | `1.448` | `4.05 s` |
-| Roadworks Stress Test (`22 m`, Arch Blocked) | `1.000` | `0.000` | `1.460` | `0.00 s` |
-
-> **Key Finding (Asymmetric Sightline Loss):** Unlike symmetric interior partitions, street-level sightline loss hurts the pedestrian far more than detour delay slows the team. When a captor van parks `6–12 m` behind a tall vehicle, an *ambush blind-spot wedge* collapses warning lead time and drives capture risk from `0.000` to `0.863–1.000`.
-
-### 2D Ray-Casting Cones & Ambush Sensitivity Heatmaps
+- **Symmetric Channel Decomposition:** Using common random numbers, each obstacle is split into a pedestrian sightline/speed channel (`ped_only`), a pursuer detour delay channel (`team_only`, `+3.0 s`), and the combined symmetric case (`both`). Street-level sightline loss hurts the pedestrian far more than detour delay slows the team: when a captor van parks `6–12 m` behind a tall vehicle, an *ambush blind-spot wedge* collapses warning lead time and drives capture risk from `0.000` to `0.863–1.000`.
 
 ![Stage 2 2D Ray-Casting Occlusion Cones](AlternativeScenarioObstacles/stage2_occlusion_preview.png)
 
 ![Stage 2 Ambush Blind-Spot Heatmap](AlternativeScenarioObstacles/stage2_occlusion_heatmap.png)
+
+### 2. Blind Policy vs. Corner-Peek (`occlusion_aware`) Mitigation
+
+By hugging the inner building edge (`y = -0.8 m`), decelerating solely at the front corner edge of tall obstacles (`x_end - 1.5 <= x <= x_end + 0.5`), and guarding the corridor to the courtyard refuge, `occlusion_aware` eliminates the mid-street ambush wedge (`n = 500`, `van_x = 24 m`):
+
+| Scenario (`channel = both`) | Blind `adaptive_bayes` $P(\text{caught})$ | Corner-Peek `occlusion_aware` $P(\text{caught})$ | Mean Cost $J$ (Blind $\to$ Aware) | Effective Lead Time (Blind $\to$ Aware) |
+| :--- | :---: | :---: | :---: | :---: |
+| Parallel Baseline (Low Sedans) | `0.000` | `0.000` | `0.556` $\to$ `0.556` | `10.65 s` $\to$ `10.65 s` |
+| Tall Delivery Truck (`x = 12 m`) | `0.863` | **`0.000`** | `1.348` $\to$ **`0.559`** | `4.35 s` $\to$ **`7.15 s`** |
+| Angled Parking (`45°`) + Tall Truck | `0.959` | **`0.192`** | `1.448` $\to$ **`0.752`** | `4.05 s` $\to$ **`6.05 s`** |
+| Roadworks Stress Test (`22 m`, Arch Blocked) | `1.000` | `1.000` | `1.460` $\to$ `1.480` | `0.00 s` $\to$ `0.00 s` |
+
+![Blind vs Corner-Peek Ambush Heatmaps](AlternativeScenarioObstacles/stage2_caution_comparison.png)
+
+### 3. Pre-Parked Active Captor Vans (`is_pre_parked = True`)
+
+When a captor van is already parked behind a tall truck prior to the evader's arrival and is actively filling its quota (`k < Q`), no `slowing`/`parking` cues exist, but visual detection immediately collapses uncertainty to `P(captor) = 1.0` (`P(FA) = 0.000` across all regimes, `n = 500`, `van_x = 24 m`):
+
+| Truck-to-Van Clearance | `naive` (Center `y = 0 m`) $P(\text{caught})$ | `corner_peek` (`y = -0.8 m`) $P(\text{caught})$ | `wide_berth_peek` (`y = -1.4 m`) $P(\text{caught})$ | First Visual Sighting Gap |
+| :--- | :---: | :---: | :---: | :---: |
+| Tight Ambush (`3.5 m` gap) | `1.000` (`J = 1.500`) | **`0.000`** (`J = 0.014`) | **`0.000`** (`J = 0.014`) | `6.92 m` $\to$ `9.44 m` / `11.40 m` |
+| Medium Gap (`5.5 m` gap) | `0.000` (`J = 0.000`) | `0.000` (`J = 0.014`) | `0.000` (`J = 0.014`) | `10.98 m` $\to$ `14.90 m` / `17.98 m` |
+| Wide Gap (`9.5 m` gap) | `0.000` (`J = 0.000`) | `0.000` (`J = 0.014`) | `0.000` (`J = 0.014`) | `18.96 m` $\to$ `24.00 m` / `24.00 m` |
+| Far Truck (`13.5 m` gap) | `0.000` (`J = 0.000`) | `0.000` (`J = 0.013`) | `0.000` (`J = 0.013`) | `24.00 m` $\to$ `24.00 m` / `24.00 m` |
+
+![Pre-Parked Active Van Benchmark](AlternativeScenarioObstacles/stage2_preparked_results.png)
 
 ---
 
